@@ -1,10 +1,12 @@
 #!/usr/bin/python
 
 # A simple application indicator to change display backlight brightness.
-# It sets a GConf setting on which gnome-power-manager reacts.
+# It uses DBus to talk to the GNOME PowerManager.
 #
-# Note that it only works for displays with configurable backlight,
-# and only when the computer does not run on battery.
+# Note that it only works if there is a backlight-capable device present.
+# Notebooks and netbooks usually have adjustable backlight in their displays,
+# but standalone devices might not have it.
+# Check "/sys/class/backlight/" for backlight support.
 
 # MIT LICENSE
 # Copyright (c) 2011 Markus Pointner <markus.pointner (at) mooware.at>
@@ -27,42 +29,71 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from os.path import dirname
-
 import pygtk
 pygtk.require('2.0')
 
 import gtk
-import gconf
 import appindicator
+import dbus
+from dbus.mainloop.glib import DBusGMainLoop
 
-# GConf key for the brightness setting. takes a value from 0 - 100.
-BRIGHTNESS_KEY = "/apps/gnome-power-manager/backlight/brightness_ac"
 
-class BrightnessIndicator:
+# This class encapsulates the mechanism by which we talk to the backlight.
+# Currently, it uses the DBus interface of the GNOME PowerManager.
+class BacklightAdapter:
   def __init__(self):
+    bus = dbus.SessionBus()
+    proxy = bus.get_object("org.gnome.PowerManager",
+                           "/org/gnome/PowerManager/Backlight")
+    self.dbus_interface = dbus.Interface(proxy, dbus_interface="org.gnome.PowerManager.Backlight")
+    self.dbus_interface.connect_to_signal("Brightnesanged", self.brightness_changed)
+
+    self.callback = None
+
+  def get_value(self):
+    return int(self.dbus_interface.GetBrightness())
+
+  def set_value(self, value):
+    self.dbus_interface.SetBrightness(value)
+
+  def set_callback(self, callback):
+    self.callback = callback
+
+  def brightness_changed(self, changed_value):
+    if callback:
+      callback(changed_value)
+
+
+# This is the main class. It creates and manages the indicator.
+class IndicatorBacklight:
+  def __init__(self, backlight):
     # create a menu
     self.menu = gtk.Menu()
     self.menu.connect("destroy", self.destroy_indicator)
-    self.menu_items = []
-    self.current_index = -1
 
     # create items for the menu
-    prev_item = None
+    self.menu_items = []
+    self.current_item = None
+
+    radio_group = None
     for i in range(0, 11):
-      item = gtk.RadioMenuItem(prev_item, str(i))
-      prev_item = item
-      item.connect("activate", self.item_activate)
+      brightness_value = i * 10
+      item = gtk.RadioMenuItem(radio_group, str(brightness_value) + "%")
+
+      if radio_group == None:
+        radio_group = item
+
+      item.connect("activate", self.item_activate, brightness_value)
       item.show()
       self.menu.append(item)
       self.menu_items.append(item)
 
-    # prepare gconf
-    self.gconf = gconf.client_get_default()
-    self.gconf.add_dir(dirname(BRIGHTNESS_KEY), gconf.CLIENT_PRELOAD_NONE)
-    self.gconf_notify_id = self.gconf.notify_add(BRIGHTNESS_KEY,
-                                                 self.gconf_value_changed)
-    self.gconf_value_changed(self.gconf)
+    # init the backlight adapter
+    self.backlight = backlight
+    self.backlight.set_callback(self.brightness_changed)
+
+    # initialize the state of the radio items
+    self.brightness_changed(self.backlight.get_value())
 
     # create the indicator. i hope that the "gnome-brightness-applet" icon is
     # distributed with gnome by default.
@@ -75,22 +106,37 @@ class BrightnessIndicator:
     self.menu.show()
     self.indicator.set_menu(self.menu)
 
-  def item_activate(self, item):
-    new_index = int(item.get_label())
-    if new_index != self.current_index:
-      self.current_index = new_index
-      self.gconf.set_int(BRIGHTNESS_KEY, new_index * 10)
+  # selects the menu item associated with the given brightness value
+  def get_item_for_brightness(self, value):
+    index = int(round(value / 10.0))
+    return self.menu_items[index]
 
-  def gconf_value_changed(self, client, *args, **kwargs):
-    new_value = client.get_int(BRIGHTNESS_KEY)
-    new_index = int(round(new_value / 10.0))
-    if new_index != self.current_index:
-      self.menu_items[new_index].set_active(True)
+  # callback for external changes of brightness
+  def brightness_changed(self, new_value):
+    new_item = self.get_item_for_brightness(new_value)
+    if new_item != self.current_item:
+      self.current_item = new_item
+      new_item.set_active(True)
 
+  # callback for selecting a menu item
+  def item_activate(self, item, brightness_value):
+    if item != self.current_item:
+      self.current_item = item
+      self.backlight.set_value(brightness_value)
+
+  # cleanup
   def destroy_indicator(self):
-    if self.gconf_notify_id != 0:
-      self.gconf.notify_remove(self.gconf_notify_id)
+    pass
+
 
 if __name__ == "__main__":
-  indicator = BrightnessIndicator()
+  # tell DBus which event loop to use for signal dispatching
+  # (must happen before opening the bus)
+  DBusGMainLoop(set_as_default=True)
+
+  # initialize the DBus backlight class and test it
+  backlight = BacklightAdapter()
+  backlight.get_value()
+
+  indicator = IndicatorBacklight(backlight)
   gtk.main()

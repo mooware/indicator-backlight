@@ -1,8 +1,11 @@
 A simple application indicator to change display backlight brightness.
-It sets a GConf setting on which gnome-power-manager reacts.
+It uses DBus to talk to the GNOME PowerManager.
 
-Note that it only works for displays with configurable backlight,
-and only when the computer does not run on battery.
+Note that it only works if there is a backlight-capable device present.
+Notebooks and netbooks usually have adjustable backlight in their displays,
+but standalone devices might not have it.
+Check "/sys/class/backlight/" for backlight support.
+
 
 MIT LICENSE
 Copyright (c) 2011 Markus Pointner <markus.pointner (at) mooware.at>
