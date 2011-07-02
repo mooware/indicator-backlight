@@ -46,7 +46,7 @@ class BacklightAdapter:
     proxy = bus.get_object("org.gnome.PowerManager",
                            "/org/gnome/PowerManager/Backlight")
     self.dbus_interface = dbus.Interface(proxy, dbus_interface="org.gnome.PowerManager.Backlight")
-    self.dbus_interface.connect_to_signal("Brightnesanged", self.brightness_changed)
+    self.dbus_interface.connect_to_signal("BrightnessChanged", self.brightness_changed)
 
     self.callback = None
 
