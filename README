@@ -1,3 +1,6 @@
+UPDATE: This indicator does not work on current Ubuntu versions, because
+the DBus interface to the GNOME PowerManager is gone.
+
 A simple application indicator to change display backlight brightness.
 It uses DBus to talk to the GNOME PowerManager.
 
